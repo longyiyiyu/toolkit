@@ -1,0 +1,30 @@
+#!/bin/bash
+###
+# @file -- view
+# @brief -- a command of viewing the content of an ASCII file
+#			if the number of the file is more than 100
+#			use "cat" to open the file, otherwise use "less" 
+# @$1 -- the file to be viewed
+# @output --
+# @return --
+# @author -- Li Qinglong
+# @date -- 06.09.2011
+###
+
+if [ $# -lt 1 ]
+then
+	echo "Usage: `basename $0` filepath";
+	exit 1;
+fi
+
+file=$1;
+num=`wc -l $file | sed "s/^ *//" | cut -d" " -f1`;
+#echo $num;
+if [ $num -gt 100 ]
+then
+	less $file;
+else
+	cat $file;
+fi
+
+exit 0;

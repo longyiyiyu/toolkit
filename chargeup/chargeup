@@ -1,0 +1,254 @@
+#!/usr/bin/env python
+#coding: utf-8
+###
+# vim: set number shiftwidth=4 tabstop=4 softtabstop=4 autoindent: ###vim setting
+# @file -- chargeup
+# @brief -- a simple account book app which can charge up a note, 
+#			delete a note and print the notes with the sum
+# @author -- Li Qinglong
+# @date -- 2014-01-04
+# @version -- 1.0
+#
+# Usage:
+# 1) income
+#	chargeup -i -D 2014-01-01 -s 2000 -c 'wage'
+# 2) outcome
+# 	chargeup -o -D 2014-01-01 -s 200 -c 'buy books'
+# 3) delete
+# 	chargeup -d --id 10
+# 	you can get the #id from the print list
+# 4) print
+# 	chargeup -p -m 1
+# 	print the month-note 1 month ago
+# 
+# 	chargeup -p -f 2013-01-01 -t 2014-01-01
+# 	print the notes between 2013-01-01 to 2014-01-01
+# 5) help
+#	chargeup -h
+#	get the detailed options list
+#
+###
+
+from sqlalchemy import create_engine, Column, Integer, String, Date, Boolean
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime, date, timedelta
+import os, sys
+
+#configuration
+defaults = {
+	'dbstr' : 'sqlite:///'+os.path.expanduser('~')+'/data/chargeup.sqlite',	#database dns, use SQLLite
+	'monthDay' : 1,		#the begin day of the month-note
+	'debug' : False		#debug flag
+}
+
+#use SQLAlchemy SQL toolkit
+engine = create_engine(defaults['dbstr'], echo=defaults['debug'])
+Session = sessionmaker(bind=engine)
+
+#notes table
+Base = declarative_base()
+class Note(Base):
+	__tablename__ = 'notes'
+
+	id = Column(Integer, primary_key=True)
+	date = Column(Date, nullable=False)
+	isin = Column(Boolean, nullable=False)
+	sum = Column(Integer, nullable=False)
+	comment = Column(String, nullable=False)
+
+	def __init__(self, date, isin, sum, comment):
+		self.date = date
+		self.isin = isin
+		self.sum = sum
+		self.comment = comment
+
+	def printNote(self):
+		print "\t%d\t%s\t%s%d\t%s" % (self.id, self.date, '+' if self.isin else '-', self.sum, self.comment.encode('utf-8'))
+
+	def __repr__(self):
+		return "<Note(%s, '%s', %s, %d, '%s')>" % (self.id, self.date, self.isin, self.sum, self.comment.encode('utf-8'))
+
+#check for creating the table
+Base.metadata.create_all(engine)
+
+#use the optparse module to process the args
+def doArgs():
+	import optparse
+	p = optparse.OptionParser()
+	
+	#actions
+	p.add_option("-i", action="store_const", const=1, dest="action", help="action: charge up income")
+	p.add_option("-o", action="store_const", const=2, dest="action", help="action: charge up outcome")
+	p.add_option("-d", action="store_const", const=3, dest="action", help="action: delete a note")
+	p.add_option("-p", action="store_const", const=4, dest="action", help="action: print the notes")
+
+	#action: in[1] && out[2]
+	p.add_option("-D", "--date", action="store", type="string", dest="cuDate", help="the date for this note, default is today")
+	p.add_option("-s", "--sum", action="store", type="int", dest="cuSum", help="the sum for this note [must for -i|-o]")
+	p.add_option("-c", "--comment", action="store", type="string", dest="cuComment", help="the comment for this note [must for -i|-o]")
+
+	#action: del[3]
+	p.add_option("--id", action="store", type="int", dest="delId", help="the id of a deleting note [must for -d]")
+
+	#action: print[4]
+	p.add_option("-f", "--from", action="store", type="string", dest="pFrom", help="the begin date for printing, default is today")
+	p.add_option("-t", "--to", action="store", type="string", dest="pTo", help="the end date for printing, default is today")
+	p.add_option("-m", "--month", action="store", type="int", dest="pMonth", help="print the X months ago's month-note, 0 for this month, this is superior to -f|-t")
+
+	p.set_defaults(
+		action=0,
+		cuDate="",
+		cuSum=0,
+		cuComment="",
+		delId=0,
+		pFrom="",
+		pTo="",
+		pMonth=-1
+	)
+	
+	return p.parse_args()
+
+#check args for charging up
+def doArgsForChargeUp(cuDate, cuSum, cuComment):
+	"""
+	 "" brief: process the args of charging up actions, exit if error
+	 "" @cuDate: the date of the note, default is today
+	 "" @cuSum: the sum of the note, which must be a positive int
+	 "" @cuComment: the comment of the note, which can not be null string
+	 ""
+	 "" @return: (date, sum, comment)
+	 "" @date: a datetime.date object
+	"""
+	if cuSum <= 0:
+		sys.exit("Error: must give a positive sum\n")
+	if cuComment == "":
+		sys.exit("Error: must give a comment\n")
+	if cuDate == "":
+		cuDate = date.today()
+	else:
+		try:
+			cuDate = datetime.strptime(cuDate, "%Y-%m-%d").date()
+		except ValueError:
+			sys.exit("Error: invalid date string -- %s [eg. 2014-01-01]\n" % cuDate)
+
+	return (cuDate, cuSum, cuComment)
+
+#check args for deleting
+def doArgsForDelete(delId):
+	"""
+	 "" brief: process the args of deleting action, exit if error
+	 "" @delId: the id of a note to be deleting which must be a position int
+	 "" @return: delId
+	"""
+	if delId <= 0:
+		sys.exit("Error: must give a positive id\n")
+
+	return delId
+
+#check args for printing
+def doArgsForPrint(pMonth, pFrom, pTo):
+	"""
+	 "" brief: process the args of printing action, exit if error
+	 "" @pMonth: a positive int
+	 "" @pFrom: the begin date of printing, default is today, omit if pMonth given
+	 "" @pTo: the end date of printing, default is today, omit if pMonth given
+	 "" @return: (pMonth, None, None) or (-1, pMonth, pTo)
+	 "" @pFrom|pTo: the datetime.date object
+	"""
+	if pMonth != -1:
+		if pMonth < 0:
+			sys.exit("Error: must give a positive month\n")
+		return (pMonth, None, None)
+
+	if pFrom == "":
+		pFrom = date.today()
+	else:
+		try:
+			pFrom = datetime.strptime(pFrom, "%Y-%m-%d").date()
+		except ValueError:
+			sys.exit("Error: invalid date string -- %s [eg. 2014-01-01]\n" % pFrom)
+
+	if pTo == "":
+		pTo = date.today()
+	else:
+		try:
+			pTo = datetime.strptime(pTo, "%Y-%m-%d").date()
+		except ValueError:
+			sys.exit("Error: invalid date string -- %s [eg. 2014-01-01]\n" % pTo)
+	
+	return (-1, pFrom, pTo)
+
+#process action in[1] && out[2]
+def actionInOut(opt, args):
+	"""
+	 "" brief: insert a new recode to notes table in the sqllite db
+	 "" @return: None
+	"""
+	cuDate, cuSum, cuComment = doArgsForChargeUp(opt.cuDate, opt.cuSum, opt.cuComment)
+	note = Note(cuDate, opt.action==1, cuSum, cuComment.decode('utf-8'))
+	session = Session()
+	session.add(note)
+	session.commit()
+
+#process action delete[3]
+def actionDelete(opt, args):
+	"""
+	 "" brief: delete a recode from notes table in the sqllite db
+	 "" @return: None
+	"""
+	delId = doArgsForDelete(opt.delId)
+	session = Session()
+	note = session.query(Note).get(delId)
+	if note:
+		session.delete(note)
+		session.commit()
+
+#process action print[4]
+def actionPrint(opt, args):
+	"""
+	 "" brief: print the notes
+	 "" @return: None
+	"""
+	pMonth, pFrom, pTo = doArgsForPrint(opt.pMonth, opt.pFrom, opt.pTo)
+	#if pMonth is given, print the month-note
+	if pMonth >= 0:
+		today = date.today()
+		day = defaults['monthDay']
+		delta = 0 if today.month-pMonth>0 else (pMonth-today.month)/12 + 1
+		month = today.month-pMonth if today.month-pMonth>0 else today.month+12*delta-pMonth
+		year = today.year - delta
+		pFrom = date(year, month, day)
+		pTo = date(year+1, 1, day) - timedelta(days=1) if month+1>12 else date(year, month+1, day) - timedelta(days=1)
+
+	printBetween(pFrom, pTo)
+
+#defaults action
+def actionDefault(opt, args):
+	sys.exit("Error: meet an  unknown action arg [-i|-o|-d|-p]")
+
+#the switch implementation
+actionDict = { 1: actionInOut, 2: actionInOut, 3: actionDelete, 4: actionPrint }
+
+#print notes between pFromm to pTo
+def printBetween(pFrom=date.today(), pTo=date.today()):
+	session = Session()
+	notes = session.query(Note).filter(Note.date>=pFrom, Note.date<=pTo).order_by(Note.date).all()
+	printNoteList(notes)
+
+#print notes
+def printNoteList(notes):
+	print "\tID\tDATE\t\tSUM\tCOMMENT"
+	[n.printNote() for n in notes]
+	print "\tsum\t%+d" % sum(n.sum if n.isin else -n.sum for n in notes)
+
+#main
+def main():
+	opt, args = doArgs()
+	if opt.action <= 0:
+		sys.exit("Error: must give an action arg [-i|-o|-d|-p]")
+
+	actionDict.get(opt.action, actionDefault)(opt, args)
+
+if __name__ == "__main__":
+	main()

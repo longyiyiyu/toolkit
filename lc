@@ -1,0 +1,69 @@
+#!/bin/bash
+###
+# @file -- lc
+# @brief -- count the lines of files with '.$2' postfix in the dir $1
+# @[$1] -- the dir which files in
+# @[$2] -- file postfix
+# @output -- list the lines count of the files and the summary
+# @return --
+# @author -- Li Qinglong
+# @date -- 2012.10.19
+# @version -- 1.0
+###
+
+if [ $# -lt 2 ]
+then
+	echo "Usage: `basename $0` rootdir file_postfix";
+	exit 1;
+fi
+
+root='';
+if [ -d $1 ]
+then
+	root=`basename $1`;
+else
+	echo "Usage: `basename $0` rootdir file_postfix";
+	exit 1;
+fi
+postfix=$2;
+#echo $root;
+#echo $postfix;
+
+aFiles=();
+###
+#brief -- fetch the file which postfix is $2 in dir $1 into aFiles array
+#$1 -- the dir to scan
+#$2 -- file postfix
+#$3 -- parent dir
+#return -- 
+###
+function scanFilesWithPostfix() {
+	for file in `ls $3/$1`
+	do
+		if [ -d $3/$1/${file} ]
+		then
+			scanFilesWithPostfix ${file} $2 $3/$1;
+		elif [ -f $3/$1/${file} ]
+		then
+			if [ $2 = ${file##*.} ]
+			then
+				aFiles[${#aFiles[@]}]=$3/$1/${file};
+			fi
+		fi
+	done
+}
+
+scanFilesWithPostfix ${root} ${postfix} .;
+total=0;
+if [ ${#aFiles[@]} -eq 0 ]
+then
+	echo "0 total";
+else
+	for file in ${aFiles[@]}
+	do
+		wc -l ${file} | sed "s/^ *//";
+		num=`wc -l ${file} | sed "s/^ *//" | cut -d" " -f1`;
+		total=`expr ${total} + ${num}`;
+	done
+	echo "${total} total";
+fi
